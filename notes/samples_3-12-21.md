@@ -19,7 +19,13 @@ I think this is what we really want
 Here they did in human cells and with ligase and
 ligase knockout human cells (?).
 
-Yes that seems right.
+Yes that seems right. Looks like silencing was done via siRNA treatment
+
+```
+Treatment with siRNA was carried out 24 h after seeding 200,000 wildtype ...
+```
+
+Treated cells were used for looking at O fragments.
 
 ```
 Cells with inactivated DNA Ligase 1 and 3 were used to map the distribution of Okazaki fragments.
@@ -27,4 +33,13 @@ Cells with inactivated DNA Ligase 1 and 3 were used to map the distribution of O
 
 Deleted everything in raw data and replaces with just the human mapping from
 the above geo link.
+
+Downloaded geo stuff to local PC and then uploaded to Crick server
+
+```
+sudo scp -i  ~/.ssh/lsanz_id_rsa /home/ethan/Downloads/GSE134224_RAW.tar \
+lsanz@crick.cse.ucdavis.edu:/home/lsanz/eth/projects/GLOE-seq/rawdata
+```
+
+
 
