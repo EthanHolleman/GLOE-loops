@@ -10,7 +10,7 @@ how to interpret these yet.
 
 Can basically just ignore the yeast stuff for now.
 
-# Mapping of ligase compentent cells
+# Mapping of ligase competent cells
 
 I think this is what we really want
 
