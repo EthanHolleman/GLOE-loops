@@ -21,7 +21,7 @@ seperate_peaks <- function(bed.df){
 
 write_bed_file <- function(bed.df, output.path){
   write.table(bed.df, file=output.path,
-              row.names=FALSE, col.names=FALSE, sep='\t')
+              row.names=FALSE, col.names=FALSE, sep='\t', quote=FALSE)
 }
 
 if (!interactive()){
