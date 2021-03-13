@@ -1,1 +1,3 @@
 rawdata/
+.snakemake
+output/
