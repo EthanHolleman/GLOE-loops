@@ -75,7 +75,8 @@ rule intersect_all:
     output:
         'output/intersections/{sample}.bed'
     shell:'''
-    bedtools intersect -wa -wb -a {input.DRIP_bed} -b {input.GLOE_beds} -sorted -filenames
+    bedtools intersect -wa -wb -a {input.DRIP_bed} -b {input.GLOE_beds} \
+    -sorted -filenames > {output}
     '''
 
 
