@@ -6,3 +6,4 @@ __default__:
   output: "Logs/{rule}.{wildcards}.out"
   time: "2-0"
   email: 'etholleman@ucdavis.edu'
+  mem: "10000"
