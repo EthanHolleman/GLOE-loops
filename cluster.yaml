@@ -5,3 +5,4 @@ __default__:
   name: "{rule}.{wildcards}"
   output: "Logs/{rule}.{wildcards}.out"
   time: "2-0"
+  email: 'etholleman@ucdavis.edu'
