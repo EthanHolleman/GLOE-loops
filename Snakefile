@@ -11,21 +11,17 @@ gloe_reads_df = pd.read_table(
 gloe_reads_df_url = gloe_reads_df[gloe_reads_df["url"].isnull() == False]
 # only rows with SRA urls should be included
 
-HG_LINK = 'https://ftp.ncbi.nlm.nih.gov/genomes/archive/old_genbank/Eukaryotes/vertebrates_mammals/Homo_sapiens/GRCh37/Primary_Assembly/assembled_chromosomes/FASTA/'
-HG_NUMBERS = list(range(1, 23)) + ['X', 'Y']
 DRIP_SAMPLES = list(drip_samples_df['sample_name'])
 GLOE_SAMPLES = list(gloe_reads_df_url['Sample Name'])
-
-hg_dict = {f'chr{chr_number}': os.path.join(HG_LINK, f'chr{chr_number}.fa.gz') 
-           for chr_number in HG_NUMBERS}
-hg_chromosomes = hg_dict.keys()
 
 
 rule all:
     input:
         #expand('output/intersections/{sample}.bed', sample=DRIP_SAMPLES)
         #expand('rawdata/GLOE/{sample}.fastq', sample=GLOE_SAMPLES)
-        expand('output/fastqc/{sample}', sample=GLOE_SAMPLES)
+        #expand('output/fastqc/{sample}', sample=GLOE_SAMPLES)
+        #expand('output/alignment/{sample}.sam', sample=GLOE_SAMPLES)
+        expand('output/alignment/{sample}/{sample}.sorted.trim.bam', sample=GLOE_SAMPLES)
 
 
 rule expand_drip:
@@ -46,10 +42,11 @@ rule download_drip:
 rule download_hg_bt_index:
     output:
         index_dir=directory('rawdata/bowtie2/hg19_index'),
-        downloaded_zip='rawdata/bowtie2/hg19_index/hg19.zip'
+        downloaded_zip='rawdata/bowtie2/hg19_index/hg19.zip',
     shell:'''
+    mkdir --parents {output.index_dir}
     curl https://genome-idx.s3.amazonaws.com/bt/hg19.zip -o {output.downloaded_zip}
-    unzip {output.downloaded_zip}
+    unzip {output.downloaded_zip} -d {output.index_dir}
     '''
 
 
@@ -63,40 +60,66 @@ rule fastqc:
     fastqc {input} -o {output}
     '''
 
+
 rule map_reads:  # are these reads paired end (mates)?
     input:
-        sample_reads='rawdata/GLOE/{sample}.fastq',  # might not actually be this
-        bw_index='rawdata/bowtie2/hg19_index',
-
+        sample_reads='rawdata/GLOE/{sample}.fastq',
+        bt_index='rawdata/bowtie2/hg19_index',
     output:
-        'output/aligment/{sample}.sam'
+        'output/alignment/{sample}/{sample}.sam'
+    threads: 12
     shell:'''
-    bowtie2 -x {input.bw_index} -s {output}
+    bowtie2 -q --very-fast -x {input.bt_index}/hg19 -U {input.sample_reads} \
+    -s {output} -p {threads}
     '''
 
-# rule expand_hg:
-#     input:
-#         expand('rawdata/hg/{chr_name}.fa.gz')
+
+rule sam_to_bam:
+    input:
+        'output/alignment/{sample}/{sample}.sam'
+    output:
+        'output/alignment/{sample}/{sample}.bam'
+    shell:'''
+    samtools view -bhSu {input} > {output}
+    '''
 
 
-# rule download_hg:
-#     output:
-#         'rawdata/hg/{chr_name}.fa.gz'
-#     params:
-#         download_link = lambda wildcards: hg_dict[wildcards.chr_number]
-#     shell:'''
-#     curl -L {params.download_link} -o {output}
-#     '''
+rule sort_bam:
+    input:
+        'output/alignment/{sample}/{sample}.bam'
+    output:
+        'output/alignment/{sample}/{sample}.sorted.bam'
+    params:
+        temp='output/alignment/{sample}_temp'
+    threads: 8
+    shell:'''
+    mkdir --parents {params.temp}
+    samtooms sort -O bam -T {params.temp} --threads {threads} {input} > {output}
+    '''
 
-# rule cat_hg_chromosomes:
-#     input:
-#         expand('rawdata/hg/{chr_name}.fa.gz', chr_name=hg_chromosomes)
-#     output:
-#         'rawdata/hg/complete.fa.gz'  # gz files can be directly concatenated
-#     shell:'''
-#     cat {input} > {output}
-#     '''
-    
+
+rule trim_bam_bad_alignments:
+    input:
+        'output/alignment/{sample}/{sample}.sorted.bam'
+    output:
+        'output/alignment/{sample}/{sample}.trim.bam'
+    shell:'''
+    samtools view -q 30 -bhu {input} > {output}
+    '''
+
+
+rule sort_trimmed_bam:
+    input:
+        'output/alignment/{sample}/{sample}.trim.bam'
+    output:
+        'output/alignment/{sample}/{sample}.sorted.trim.bam'
+    threads: 8
+    params:
+        temp='output/alignment/{sample}_trim_temp'
+    shell:'''
+    samtools sort -O bam -T {params.temp} {input} --threads {threads} > {output}
+    '''
+
 
 rule expand_gloe_reads:
     input:
@@ -181,13 +204,6 @@ rule intersect_all:
     -sorted -filenames > {output}
     '''
 
-
-
-
-
-
-
-# want to intersect each against all DRIP data??
 
 
 
