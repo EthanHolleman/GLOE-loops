@@ -60,14 +60,24 @@ rule fastqc:
     fastqc {input} -o {output}
     '''
 
+rule download_primer_file:
+    output:
+        'output/primers/TruSeq3-SE.fa'
+    shell:'''
+    curl https://raw.githubusercontent.com/timflutre/trimmomatic/master/adapters/TruSeq3-SE.fa \
+    -o {output}
+    '''
+    
 rule trimmomatic:
     input:
-        'rawdata/GLOE/{sample}.fastq.gz'
+        reads='rawdata/GLOE/{sample}.fastq.gz',
+        primers='output/primers/TruSeq3-SE.fa'
     output:
         'output/{sample}/{sample}.trimmed.fastq.gz'
+    threads: 8
     shell:'''
-    trimmomatic SE -phred33 {input} {output} \
-    ILLUMINACLIP:TruSeq3-SE.fa:2:30:10, SLIDINGWINDOW:4:15, MINLEN:36
+    trimmomatic SE -threads {threads} -phred33 {input.reads} {output} \
+    ILLUMINACLIP:{input.primers}:2:30:10 SLIDINGWINDOW:4:15 MINLEN:36
     '''
 
 
