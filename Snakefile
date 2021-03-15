@@ -133,6 +133,71 @@ rule sort_trimmed_bam:
     rm {input}
     '''
 
+rule flagstat_bam:
+    input:
+        'output/alignment/{sample}/{sample}.sorted.trim.bam'
+    output:
+        'output/alignment/{sample}/{sample}.flagstat.sorted.trim.bam'
+    shell:'''
+    samtools flagstat {input} > {output}
+    '''
+
+
+rule index_sorted_bam:
+    input:
+        'output/alignment/{sample}/{sample}.sorted.trim.bam'
+    output:
+        'output/alignment/{sample}/{sample}.sorted.trim.index'
+    shell:'''
+    samtools index {input} {output}
+    '''
+
+# Rules below are the bam2bedI module broken up
+
+rule bam_to_bed:
+    input:
+        'output/alignment/{sample}/{sample}.sorted.trim.bam'
+    output:
+        'output/alignment/{sample}/{sample}.sorted.trim.bed'
+    shell:'''
+    bedtools bamtobed -i {input} > {output}
+    '''
+
+
+rule indirect_mode:
+    input:
+        'output/alignment/{sample}/{sample}.sorted.trim.bed'
+    output:
+        'output/alignment/{sample}/{sample}.indirect.sorted.trim.bed'
+    shell:"""
+    perl ../scripts/indirect_mode.pl {input} | \
+    sort -k1,1 -k2,2n -k 6 - |  \
+    awk '(\$2 >= 0)' > {output}
+    awk  '{print \$1 "\\t" \$2 "\\t" \$3 "\\t" \$4 "\\t" "0" "\\t" \$6}' > {output}
+    """
+
+
+rule seperate_forward_strand:
+    input:
+        'output/alignment/{sample}/{sample}.indirect.sorted.trim.bed'
+    output:
+        'output/alignment/{sample}/{sample}.fwd.indirect.sorted.trim.bed'
+    
+    shell:'''
+    grep "+" {input} > {output}
+    '''
+
+
+rule seperate_reverse_strand:
+    input:
+        'output/alignment/{sample}/{sample}.indirect.sorted.trim.bed'
+    output:
+        'output/alignment/{sample}/{sample}.rev.indirect.sorted.trim.bed'
+    shell:'''
+    grep "-" {input} > {output}
+    '''
+
+# end bam2bedI rules 
 
 rule expand_gloe_reads:
     input:
