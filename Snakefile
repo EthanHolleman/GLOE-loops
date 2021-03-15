@@ -60,17 +60,27 @@ rule fastqc:
     fastqc {input} -o {output}
     '''
 
+rule trimmomatic:
+    input:
+        'rawdata/GLOE/{sample}.fastq.gz'
+    output:
+        'output/{sample}/{sample}.trimmed.fastq.gz'
+    shell:'''
+    trimmomatic SE -phred33 {input} {output} \
+    ILLUMINACLIP:TruSeq3-SE.fa:2:30:10, SLIDINGWINDOW:4:15, MINLEN:36
+    '''
+
 
 rule map_reads:  # are these reads paired end (mates)?
     input:
-        sample_reads='rawdata/GLOE/{sample}.fastq',
+        sample_reads='output/{sample}/{sample}.trimmed.fastq.gz',
         bt_index='rawdata/bowtie2/hg19_index',
     output:
         'output/alignment/{sample}/{sample}.sam'
     threads: 12
     shell:'''
     bowtie2 -q --very-fast -x {input.bt_index}/hg19 -U {input.sample_reads} \
-    -s {output} -p {threads}
+    -p {threads} -S {output}
     '''
 
 
@@ -80,7 +90,7 @@ rule sam_to_bam:
     output:
         'output/alignment/{sample}/{sample}.bam'
     shell:'''
-    samtools view -bhSu {input} > {output}
+    samtools view -bhSu -o {output} {input}
     '''
 
 
@@ -91,10 +101,10 @@ rule sort_bam:
         'output/alignment/{sample}/{sample}.sorted.bam'
     params:
         temp='output/alignment/{sample}_temp'
-    threads: 8
+    threads: 16
     shell:'''
     mkdir --parents {params.temp}
-    samtooms sort -O bam -T {params.temp} --threads {threads} {input} > {output}
+    samtools sort -O bam -T {params.temp} --threads {threads} -o {output} {input}
     '''
 
 
@@ -104,7 +114,8 @@ rule trim_bam_bad_alignments:
     output:
         'output/alignment/{sample}/{sample}.trim.bam'
     shell:'''
-    samtools view -q 30 -bhu {input} > {output}
+    samtools view -q 30 -bhu -o {output} {input}
+    rm {input}
     '''
 
 
@@ -113,16 +124,20 @@ rule sort_trimmed_bam:
         'output/alignment/{sample}/{sample}.trim.bam'
     output:
         'output/alignment/{sample}/{sample}.sorted.trim.bam'
-    threads: 8
+    threads: 16
     params:
         temp='output/alignment/{sample}_trim_temp'
     shell:'''
-    samtools sort -O bam -T {params.temp} {input} --threads {threads} > {output}
+    mkdir --parents {params.temp}
+    samtools sort -O bam -T {params.temp} --threads {threads} -o {output} {input}
+    rm {input}
     '''
 
 
 rule expand_gloe_reads:
     input:
+        # somehow wildcard sample = sample_name.trimmed ??
+        # where is trimmed coming from?
         expand('rawdata/GLOE/{sample}.sra', sample=GLOE_SAMPLES)
 
 
@@ -140,9 +155,9 @@ rule dump_gloe_fastq:
     input:
         'rawdata/GLOE/{sample}.sra'
     output:
-        'rawdata/GLOE/{sample}.fastq'
+        'rawdata/GLOE/{sample}.fastq.gz'
     shell:'''
-    fastq-dump -Z {input} > {output}
+    fastq-dump -Z {input} | gzip > {output}
     '''
 
 
