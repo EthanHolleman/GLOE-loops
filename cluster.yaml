@@ -11,4 +11,8 @@ __default__:
 
 map_reads:
   time: "8-0"
+  mem: "32000"
+
+trimmomatic:
+  time: "8-0"
   mem: "48000"

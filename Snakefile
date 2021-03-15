@@ -74,7 +74,7 @@ rule trimmomatic:
         primers='output/primers/TruSeq3-SE.fa'
     output:
         'output/{sample}/{sample}.trimmed.fastq.gz'
-    threads: 8
+    threads: 16
     shell:'''
     trimmomatic SE -threads {threads} -phred33 {input.reads} {output} \
     ILLUMINACLIP:{input.primers}:2:30:10 SLIDINGWINDOW:4:15 MINLEN:36
