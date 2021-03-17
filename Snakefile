@@ -12,16 +12,21 @@ gloe_reads_df_url = gloe_reads_df[gloe_reads_df["url"].isnull() == False]
 # only rows with SRA urls should be included
 
 DRIP_SAMPLES = list(drip_samples_df['sample_name'])
+FWD_DRIP_SAMPLES = [sample for sample in DRIP_SAMPLES if '_pos' in sample]
+REV_DRIP_SAMPLES = [sample for sample in DRIP_SAMPLES if '_neg' in sample]
 GLOE_SAMPLES = list(gloe_reads_df_url['Sample Name'])
 
 
 rule all:
     input:
+        #expand('output/trim_bed/DRIP/{sample}.trim.bed', sample=DRIP_SAMPLES)
         #expand('output/intersections/{sample}.bed', sample=DRIP_SAMPLES)
         #expand('rawdata/GLOE/{sample}.fastq', sample=GLOE_SAMPLES)
         #expand('output/fastqc/{sample}', sample=GLOE_SAMPLES)
         #expand('output/alignment/{sample}.sam', sample=GLOE_SAMPLES)
-        expand('output/{sample}/indirect/{sample}.indirect.sorted.trim.bed', sample=GLOE_SAMPLES)
+        #expand('output/{sample}/indirect/{sample}.indirect.sorted.trim.bed', sample=GLOE_SAMPLES)
+        expand('output/drip_overlap/fwd/{drip_sample}_{gloe_sample}.bed', drip_sample=FWD_DRIP_SAMPLES, gloe_sample=GLOE_SAMPLES),
+        expand('output/drip_overlap/rev/{drip_sample}_{gloe_sample}.bed', drip_sample=REV_DRIP_SAMPLES, gloe_sample=GLOE_SAMPLES)
 
 
 rule expand_drip:
@@ -201,8 +206,12 @@ rule indirect_mode:
     input:
         'output/{sample}/mapped/{sample}.sorted.trim.bed'
     output:
-        sites=temp('output/{sample}/indirect/{sample}.sites.indirect.trim.bed')
+        sites='output/{sample}/indirect/{sample}.sites.indirect.trim.bed'
+    params:
+        index_dir='output/{sample}/indirect'
     shell:"""
+    module load perl
+    mkdir -p {params.index_dir}
     perl scripts/indirect_mode.pl {input} > {output.sites}
     """
 
@@ -240,9 +249,9 @@ rule indirect_big_awk:
 
 rule seperate_forward_strand:
     input:
-        'output/alignment/{sample}/indirect/{sample}.indirect.sorted.trim.bed'
+        'output/{sample}/indirect/{sample}.indirect.sorted.trim.bed'
     output:
-        'output/alignment/{sample}/indirect/{sample}.fwd.indirect.sorted.trim.bed'
+        'output/{sample}/indirect/{sample}.fwd.indirect.sorted.trim.bed'
     
     shell:'''
     grep "+" {input} > {output}
@@ -251,14 +260,35 @@ rule seperate_forward_strand:
 
 rule seperate_reverse_strand:
     input:
-        'output/alignment/{sample}/indirect/{sample}.indirect.sorted.trim.bed'
+        'output/{sample}/indirect/{sample}.indirect.sorted.trim.bed'
     output:
-        'output/alignment/{sample}/indirect/{sample}.rev.indirect.sorted.trim.bed'
+        'output/{sample}/indirect/{sample}.rev.indirect.sorted.trim.bed'
     shell:'''
     grep "-" {input} > {output}
     '''
 
+
+rule closest_drip_breaks_forward_strand:
+    input:
+        gloe='output/{gloe_sample}/indirect/{gloe_sample}.fwd.indirect.sorted.trim.bed',
+        drip='output/trim_bed/DRIP/{drip_sample}.trim.bed'
+    output:
+        'output/drip_overlap/fwd/{drip_sample}_{gloe_sample}.bed'
+    
+    shell:'''
+    mkdir -p output/drip_overlap/fwd/
+    bedtools closest -iu -d -D "a" -a {input.drip} -b {input.gloe} > {output}
+    '''
+    # -iu ignore upstream, -s same strand 
+
+use rule closest_drip_breaks_forward_strand as closest_drip_breaks_rev_strand with:
+    input:
+        gloe='output/{gloe_sample}/indirect/{gloe_sample}.rev.indirect.sorted.trim.bed'
+    output:
+        'output/drip_overlap/rev/{drip_sample}_{gloe_sample}.bed'
+
 # end bam2bedI rules 
+
 
 rule expand_gloe_reads:
     input:
