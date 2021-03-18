@@ -17,6 +17,7 @@ REV_DRIP_SAMPLES = [sample for sample in DRIP_SAMPLES if '_neg' in sample]
 GLOE_SAMPLES = list(gloe_reads_df_url['Sample Name'])
 
 
+
 rule all:
     input:
         #expand('output/trim_bed/DRIP/{sample}.trim.bed', sample=DRIP_SAMPLES)
@@ -25,9 +26,14 @@ rule all:
         #expand('output/fastqc/{sample}', sample=GLOE_SAMPLES)
         #expand('output/alignment/{sample}.sam', sample=GLOE_SAMPLES)
         #expand('output/{sample}/indirect/{sample}.indirect.sorted.trim.bed', sample=GLOE_SAMPLES)
-        expand('output/drip_overlap/fwd/{drip_sample}_{gloe_sample}.bed', drip_sample=FWD_DRIP_SAMPLES, gloe_sample=GLOE_SAMPLES),
-        expand('output/drip_overlap/rev/{drip_sample}_{gloe_sample}.bed', drip_sample=REV_DRIP_SAMPLES, gloe_sample=GLOE_SAMPLES)
-
+        #expand('output/drip_overlap/fwd/{drip_sample}_{gloe_sample}.fwd.bed', drip_sample=FWD_DRIP_SAMPLES, gloe_sample=GLOE_SAMPLES),
+        #expand('output/plots/rev/{drip_sample}_{gloe_sample}.rev.png', drip_sample=REV_DRIP_SAMPLES, gloe_sample=GLOE_SAMPLES),
+        #expand('output/plots/fwd/{drip_sample}_{gloe_sample}.fwd.png', drip_sample=FWD_DRIP_SAMPLES, gloe_sample=GLOE_SAMPLES),
+        #expand('output/plots/rev/{drip_sample}_{gloe_sample}.rev.rand.png', drip_sample=REV_DRIP_SAMPLES, gloe_sample=GLOE_SAMPLES),
+        #expand('output/plots/fwd/{drip_sample}_{gloe_sample}.fwd.rand.png', drip_sample=FWD_DRIP_SAMPLES, gloe_sample=GLOE_SAMPLES),
+        expand('output/{gloe_sample}/coverage/{gloe_sample}.rev.indirect.sorted.trim.bw', gloe_sample=GLOE_SAMPLES),
+        expand('output/{gloe_sample}/coverage/{gloe_sample}.fwd.indirect.sorted.trim.bw', gloe_sample=GLOE_SAMPLES),
+        expand('rawdata/DRIP/{sample}', sample=DRIP_SAMPLES)
 
 rule expand_drip:
     input:
@@ -152,7 +158,7 @@ rule sort_trimmed_bam:
     conda: 
         'envs/samtools.yml'
     input:
-        temp('output/{sample}/mapped/{sample}.trim.bam')
+        'output/{sample}/mapped/{sample}.trim.bam'
     output:
         temp('output/{sample}/mapped/{sample}.sorted.trim.bam')
     threads: 16
@@ -267,27 +273,203 @@ rule seperate_reverse_strand:
     grep "-" {input} > {output}
     '''
 
+rule bed_to_bam_fwd:
+    input:
+        bed='output/{sample}/indirect/{sample}.fwd.indirect.sorted.trim.bed',
+        index='rawdata/hg19/hg19.chrom.sizes'
+    output:
+        'output/{sample}/bam/{sample}.fwd.indirect.sorted.trim.bam'
+    params:
+        bed_dir='output/{sample}/bam/'
+    shell:'''
+    mkdir -p {params.bed_dir}
+    bedtools bedtobam -i {input.bed} -g "{input.index}" > {output}
+    '''
+
+
+rule bed_to_bam_rev:
+    input:
+        bed='output/{sample}/indirect/{sample}.rev.indirect.sorted.trim.bed',
+        index='rawdata/hg19/hg19.chrom.sizes'
+    output:
+        'output/{sample}/bam/{sample}.rev.indirect.sorted.trim.bam'
+    params:
+        bed_dir='output/{sample}/bam/'
+    shell:'''
+    mkdir -p {params.bed_dir}
+    bedtools bedtobam -i {input.bed} -g "{input.index}" > {output}
+    '''
+
+
+rule bam_converage_fwd:
+    conda:
+        'envs/deeptools.yml'
+    input:
+        'output/{sample}/bam/{sample}.fwd.indirect.sorted.trim.bam'
+    output:
+        'output/{sample}/coverage/{sample}.fwd.indirect.sorted.trim.bw'
+    threads: 12
+    params:
+        bw_dir='output/{sample}/coverage/'
+    shell:'''
+    mkdir -p {params.bw_dir}
+    samtools index {input}
+    bamCoverage --numberOfProcessors {threads} --outFileFormat bigwig --bam {input} -o {output} --samFlagExclude 16
+    '''
+
+
+rule bam_converage_rev:
+    conda:
+        'envs/deeptools.yml'
+    input:
+        'output/{sample}/bam/{sample}.rev.indirect.sorted.trim.bam'
+    output:
+        'output/{sample}/coverage/{sample}.rev.indirect.sorted.trim.bw'
+    threads: 12
+    params:
+        bw_dir='output/{sample}/coverage/'
+    shell:'''
+    mkdir -p {params.bw_dir}
+    samtools index {input}
+    bamCoverage --numberOfProcessors {threads} --outFileFormat bigwig --bam {input} -o {output} --samFlagInclude 16
+    '''
+
+
 
 rule closest_drip_breaks_forward_strand:
     input:
         gloe='output/{gloe_sample}/indirect/{gloe_sample}.fwd.indirect.sorted.trim.bed',
-        drip='output/trim_bed/DRIP/{drip_sample}.trim.bed'
+        drip='output/trim_bed/DRIP/{drip_sample}.trim.merged.bed'
     output:
-        'output/drip_overlap/fwd/{drip_sample}_{gloe_sample}.bed'
+        'output/drip_overlap/fwd/{drip_sample}_{gloe_sample}.fwd.bed'
     
     shell:'''
-    mkdir -p output/drip_overlap/fwd/
-    bedtools closest -iu -d -D "a" -a {input.drip} -b {input.gloe} > {output}
+    bedtools closest -t "first" -d -D "a" -a {input.drip} -b {input.gloe} > {output}
     '''
     # -iu ignore upstream, -s same strand 
 
-use rule closest_drip_breaks_forward_strand as closest_drip_breaks_rev_strand with:
+
+rule closest_drip_breaks_rev_strand:
     input:
-        gloe='output/{gloe_sample}/indirect/{gloe_sample}.rev.indirect.sorted.trim.bed'
+        gloe='output/{gloe_sample}/indirect/{gloe_sample}.rev.indirect.sorted.trim.bed',
+        drip='output/trim_bed/DRIP/{drip_sample}.trim.merged.bed'
     output:
-        'output/drip_overlap/rev/{drip_sample}_{gloe_sample}.bed'
+        'output/drip_overlap/rev/{drip_sample}_{gloe_sample}.rev.bed'
+    shell:'''
+    bedtools closest -t "first" -d -D "a" -a {input.drip} -b {input.gloe} > {output}
+    '''
+
+
+rule rand_closest_drip_breaks_rev_strand:
+    input:
+        gloe='output/{gloe_sample}/indirect/{gloe_sample}.rev.indirect.sorted.trim.bed',
+        drip='output/random_bed/{drip_sample}_{gloe_sample}.rev.sorted.bed'
+    output:
+        'output/drip_overlap/rev/{drip_sample}_{gloe_sample}.rev.rand.closest.bed'
+    shell:'''
+    bedtools closest -t "first" -d -D "a" -a {input.drip} -b {input.gloe} > {output}
+    '''
+
+rule rand_closest_drip_breaks_fwd_strand:
+    input:
+        gloe='output/{gloe_sample}/indirect/{gloe_sample}.fwd.indirect.sorted.trim.bed',
+        drip='output/random_bed/{drip_sample}_{gloe_sample}.fwd.sorted.bed'
+    output:
+        'output/drip_overlap/fwd/{drip_sample}_{gloe_sample}.fwd.rand.closest.bed'
+    shell:'''
+    bedtools closest -t "first" -d -D "a" -a {input.drip} -b {input.gloe} > {output}
+    '''
+
+rule sort_rand_bed_rev:
+    input:
+       'output/random_bed/{drip_sample}_{gloe_sample}.rev.bed'
+    output:
+        'output/random_bed/{drip_sample}_{gloe_sample}.rev.sorted.bed'
+    shell:'''
+    bedtools sort -i {input} > {output}
+    '''
+
+rule sort_rand_bed_fwd:
+    input:
+          'output/random_bed/{drip_sample}_{gloe_sample}.fwd.bed'
+    output:
+         'output/random_bed/{drip_sample}_{gloe_sample}.fwd.sorted.bed'
+    shell:'''
+    bedtools sort -i {input} > {output}
+    '''
+
 
 # end bam2bedI rules 
+
+rule plot_distance_distrabutions_fwd:
+    input:
+        bed='output/drip_overlap/fwd/{drip_sample}_{gloe_sample}.fwd.bed',
+    output:
+        png='output/plots/fwd/{drip_sample}_{gloe_sample}.fwd.png',
+        #rds='output/plots/fwd/{drip_sample}_{gloe_sample}.fwd.rds'
+    params:
+        output_name='output/plots/fwd/{drip_sample}_{gloe_sample}.fwd',
+    shell:'''
+    /home/ethollem/anaconda3/bin/Rscript scripts/plot_nick_distances.R {input} {params.output_name}
+    '''
+
+rule plot_distance_distrabutions_rev:
+    input:
+        bed='output/drip_overlap/rev/{drip_sample}_{gloe_sample}.rev.bed',
+    output:
+        png='output/plots/rev/{drip_sample}_{gloe_sample}.rev.png',
+    params:
+        output_name='output/plots/rev/{drip_sample}_{gloe_sample}.rev',
+    shell:'''
+    /home/ethollem/anaconda3/bin/Rscript scripts/plot_nick_distances.R {input.bed} {params.output_name}
+    '''
+
+rule plot_rand_distance_distrabutions_rev:
+    input:
+        rand_bed='output/drip_overlap/rev/{drip_sample}_{gloe_sample}.rev.rand.closest.bed'
+    output:
+        random_plot='output/plots/rev/{drip_sample}_{gloe_sample}.rev.rand.png'
+    shell:'''
+    /home/ethollem/anaconda3/bin/Rscript scripts/plot_nick_distances.R {input.rand_bed} {output.random_plot}
+    '''
+
+rule plot_rand_distance_distrabutions_fwd:
+    input:
+        rand_bed='output/drip_overlap/fwd/{drip_sample}_{gloe_sample}.fwd.rand.closest.bed'
+    output:
+        random_plot='output/plots/fwd/{drip_sample}_{gloe_sample}.fwd.rand.png'
+        #rds='output/plots/fwd/{drip_sample}_{gloe_sample}.fwd.rds'
+    shell:'''
+    /home/ethollem/anaconda3/bin/Rscript scripts/plot_nick_distances.R {input.rand_bed} {output.random_plot}
+    '''
+
+rule make_random_bed_fwd:
+    input:
+        bed='output/drip_overlap/fwd/{drip_sample}_{gloe_sample}.fwd.bed',
+        chr_sizes='rawdata/hg19/hg19.chrom.sizes'
+    output:
+        'output/random_bed/{drip_sample}_{gloe_sample}.fwd.bed'
+    shell:'''
+    /home/ethollem/anaconda3/bin/Rscript scripts/random_sample_genome.R {input.chr_sizes} {output} `cat {input.bed} | wc -l`
+    '''
+
+rule make_random_bed_rev:
+    input:
+        bed='output/drip_overlap/rev/{drip_sample}_{gloe_sample}.rev.bed',
+        chr_sizes='rawdata/hg19/hg19.chrom.sizes'
+    output:
+        'output/random_bed/{drip_sample}_{gloe_sample}.rev.bed'
+    shell:'''
+    /home/ethollem/anaconda3/bin/Rscript scripts/random_sample_genome.R {input.chr_sizes} {output} `cat {input.bed} | wc -l`
+    '''
+
+
+rule download_hg18_chr_sizes:
+    output:
+        'rawdata/hg19/hg19.chrom.sizes'
+    shell:'''
+    curl -L http://hgdownload.cse.ucsc.edu/goldenpath/hg19/bigZips/hg19.chrom.sizes -o {output}
+    '''
 
 
 rule expand_gloe_reads:
@@ -305,6 +487,23 @@ rule download_gloe_reads:
     shell:'''
     curl -L {params.download_link} -o {output}
     '''
+
+
+rule download_hg19_tss:
+    output:
+        'rawdata/hg19/ucsc_promoter_list.sga'
+    shell:'''
+    curl -L https://ccg.epfl.ch/mga/hg19/ucsc/ucsc_promoter_list.sga.gz -o {output}
+    '''
+
+
+rule download_transcript_ends:
+    output:
+        'rawdata/hg19/ucsc_transcriptEnd_list.sga'
+    shell:'''
+    curl -L https://ccg.epfl.ch/mga/hg19/ucsc/ucsc_transcriptEnd_list.sga.gz -o {output}
+    '''
+
 
 
 rule dump_gloe_fastq:
@@ -367,6 +566,19 @@ rule trim_DRIP_peaks:
         'output/trim_bed/DRIP/{sample}.trim.bed'
     shell:'''
     Rscript scripts/peak_sep.R {input} {output}
+    '''
+
+rule merge_DRIP:
+    # merge regions of significant signal together to avoid plotting
+    # a point for each base of an R loop later on 
+    input:
+        'output/trim_bed/DRIP/{sample}.trim.bed'
+    output:
+        'output/trim_bed/DRIP/{sample}.trim.merged.bed'
+    params:
+        d="50",
+    shell:'''
+    bedtools merge -d {params.d} -i {input} > {output}
     '''
 
 
