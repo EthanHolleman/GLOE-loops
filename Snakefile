@@ -31,9 +31,56 @@ rule all:
         #expand('output/plots/fwd/{drip_sample}_{gloe_sample}.fwd.png', drip_sample=FWD_DRIP_SAMPLES, gloe_sample=GLOE_SAMPLES),
         #expand('output/plots/rev/{drip_sample}_{gloe_sample}.rev.rand.png', drip_sample=REV_DRIP_SAMPLES, gloe_sample=GLOE_SAMPLES),
         #expand('output/plots/fwd/{drip_sample}_{gloe_sample}.fwd.rand.png', drip_sample=FWD_DRIP_SAMPLES, gloe_sample=GLOE_SAMPLES),
-        expand('output/{gloe_sample}/coverage/{gloe_sample}.rev.indirect.sorted.trim.bw', gloe_sample=GLOE_SAMPLES),
-        expand('output/{gloe_sample}/coverage/{gloe_sample}.fwd.indirect.sorted.trim.bw', gloe_sample=GLOE_SAMPLES),
-        expand('rawdata/DRIP/{sample}', sample=DRIP_SAMPLES)
+        #expand('output/{gloe_sample}/coverage/{gloe_sample}.rev.indirect.sorted.trim.bw', gloe_sample=GLOE_SAMPLES),
+        #expand('output/{gloe_sample}/coverage/{gloe_sample}.fwd.indirect.sorted.trim.bw', gloe_sample=GLOE_SAMPLES),
+        #expand('rawdata/DRIP/{sample}', sample=DRIP_SAMPLES)
+        #expand('output/{sample}/nick_to_nick/{sample}.fwd.indirect.sorted.trim.bed', sample=GLOE_SAMPLES),
+        #expand('output/{sample}/nick_to_nick/{sample}.rev.indirect.sorted.trim.bed', sample=GLOE_SAMPLES),
+        #expand('output/footloop_intersection/{sample}.{direction}.indirect.bed', sample=GLOE_SAMPLES, direction=['fwd', 'rev']),
+        #expand('output/footloop_intersection/{sample}.{direction}.indirect.count.bed', sample=GLOE_SAMPLES, direction=['fwd', 'rev'])
+        expand('output/footloop_window/{sample}.{direction_2}.{direction_1}.window.indirect.bed', sample=GLOE_SAMPLES, direction_1=['fwd', 'rev'], direction_2=['fwd', 'rev'])
+
+
+rule download_footloop_all:
+    output:
+        'rawdata/footloop/footloop_all.bed'
+    shell:'''
+    curl -L "http://genome.ucsc.edu/cgi-bin/hgTables?hgsid=1061960477_AzLo24AGPf9cdZa26GHovMN4XI9v&boolshad.hgta_printCustomTrackHeaders=0&hgta_ctName=tb_ct_footLoopPeakALL_41&hgta_ctDesc=table+browser+query+on+ct_footLoopPeakALL_41&hgta_ctVis=pack&hgta_ctUrl=&fbQual=whole&fbUpBases=200&fbDownBases=200&hgta_doGetBed=get+BED" -o {output}
+    '''
+
+
+rule seperate_footloop_strands:
+    input:
+        'rawdata/footloop/footloop_all.bed'
+    output:
+        fwd='rawdata/footloop/footloop_all.fwd.bed',
+        rev='rawdata/footloop/footloop_all.rev.bed'
+    shell:'''
+    grep "+" {input} > {output.fwd}
+    grep "-" {input} > {output.rev}
+    '''
+
+rule sort_footloop_strands:
+    input:
+        'rawdata/footloop/footloop_all.{direction}.bed'
+    output:
+        'rawdata/footloop/footloop_all.{direction}.sorted.bed'
+    shell:'''
+    bedtools sort -i {input} > {output}
+    '''
+
+rule window_footloop:
+    input:
+        footloop='rawdata/footloop/footloop_all.{direction_1}.sorted.bed',
+        gloe='output/{sample}/indirect/{sample}.{direction_2}.indirect.sorted.trim.bed'
+    output:
+        'output/footloop_window/{sample}.{direction_2}.{direction_1}.window.indirect.bed'
+    params:
+        w="1000"  # window size up and downstream
+    shell:'''
+    mkdir -p output/footloop_window/
+    bedtools window -w {params.w} -a {input.footloop} -b {input.gloe} > {output}
+    '''
 
 rule expand_drip:
     input:
@@ -272,6 +319,69 @@ rule seperate_reverse_strand:
     shell:'''
     grep "-" {input} > {output}
     '''
+
+rule merge_bed_fwd:
+    input:
+        'output/{sample}/indirect/{sample}.fwd.indirect.sorted.trim.bed'
+    output:
+        temp('output/{sample}/nick_to_nick/{sample}.fwd.indirect.sorted.trim.merge.bed')
+    shell:'''
+    bedtools merge -i {input} > {output}
+    '''
+
+
+rule merge_bed_rev:
+    input:
+        'output/{sample}/indirect/{sample}.rev.indirect.sorted.trim.bed'
+    output:
+        temp('output/{sample}/nick_to_nick/{sample}.rev.indirect.sorted.trim.merge.bed')
+    shell:'''
+    bedtools merge -i {input} > {output}
+    '''
+
+
+
+rule nick_to_nick_distance_fwd:
+    input:
+        'output/{sample}/nick_to_nick/{sample}.fwd.indirect.sorted.trim.merge.bed'
+    output:
+        'output/{sample}/nick_to_nick/{sample}.fwd.indirect.sorted.trim.bed'
+    shell:'''
+    bedtools closest -t "first" -io -s -d -D "a" -a {input} -b {input} > {output}
+    '''
+
+
+rule nick_to_nick_distance_rev:
+    input:
+        'output/{sample}/nick_to_nick/{sample}.rev.indirect.sorted.trim.merge.bed'
+    output:
+        'output/{sample}/nick_to_nick/{sample}.rev.indirect.sorted.trim.bed'
+    shell:'''
+    bedtools closest -t "first" -io -s -d -D "a" -a {input} -b {input} > {output}
+    '''
+
+
+rule plot_ntn_fwd:
+    input:
+        'output/{sample}/nick_to_nick/{sample}.fwd.indirect.sorted.trim.bed'
+    output:
+        'output/{sample}/nick_to_nick/{sample}.fwd.indirect.sorted.trim.plt.png'
+    shell:'''
+    scripts/Rscript {input} {output}
+    '''
+
+
+rule plot_ntn_rev:
+    input:
+        'output/{sample}/nick_to_nick/{sample}.rev.indirect.sorted.trim.merge.bed'
+    output:
+        'output/{sample}/nick_to_nick/{sample}.rev.indirect.sorted.trim.plt.png'
+    shell:'''
+    scripts/Rscript {input} {output}
+    '''
+
+
+
 
 rule bed_to_bam_fwd:
     input:
