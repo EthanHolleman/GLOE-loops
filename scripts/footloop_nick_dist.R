@@ -1,6 +1,6 @@
 library(tidyr)
 library(ggplot2)
-library(rcolorbrewer)
+library(RColorBrewer)
 
 
 main <- function(){
@@ -22,7 +22,6 @@ read_bed <- function(bed.path){
     'fl_chr', 'fl_start', 'fl_end', 'fl_read', 'fl_score', 'fl_strand', 
     'gl_chr', 'gl_start', 'gl_end', 'gl_read', 'gl_score', 'gl_strand'
     )
-  print(colnames(bed.df))
   bed.df <- separate(bed.df, 'fl_read', into = c('fl_gene', 'fl_read'))
   # need to separate col 4 (1 indexed) into gene and molecule
   return(bed.df)
@@ -49,19 +48,21 @@ plot_nick_distances_from_rloop_initiation_site <- function(bed.df.dist){
   # section since we still want to consider GLOE-seq reads outside of the R-looops
   # but data will end up looking the same so just use this data to get the
   # plots working
-  mycolors <- colorRampPalette(brewer.pal(8, "Dark2"))(length(unique(bed.df.dist$gene)))
-  combined_hist <- ggplot(test.df.nick, aes(x=nick_dist, fill=gene)) + 
-    geom_histogram(binwidth = 20, alpha=0.7, color="black") + 
-    scale_fill_manual(values = mycolors) + theme_minimal() + 
-    labs(y='GLOE-seq read count', x='Distance from R-loop initiation site')
-  facet_hist <- ggplot(test.df.nick, aes(x=nick_dist, fill=gene)) + 
-    geom_histogram(binwidth = 20, alpha=0.7, color="black") + 
+  mycolors <- colorRampPalette(brewer.pal(8, "Dark2"))(length(unique(bed.df.dist$fl_gene)))
+  # combined_hist <- ggplot(bed.df.dist, aes(x=nick_dist, fill=fl_gene)) + 
+  #   geom_histogram(binwidth = 20, alpha=0.7, color="black") + 
+  #   scale_fill_manual(values = mycolors) + theme_minimal() + 
+  #   labs(y='GLOE-seq read count', x='Distance from R-loop initiation site')
+  facet_hist <- ggplot(bed.df.dist, aes(x=nick_dist, fill=fl_gene)) + 
+    geom_histogram(binwidth = 20, alpha=0.9) + 
     scale_fill_manual(values = mycolors) + theme_minimal() + 
     labs(y='GLOE-seq read count', x='Distance from R-loop initiation site') +
-    facet_wrap(~gene)  # need to remove legend
-  # need to indicate strand would be nice to maybe combine strandedness plots
-  # as well
+    facet_wrap(~fl_gene) + theme(legend.position="none") + 
+    theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+    scale_y_continuous(trans='log10')
   
+  facet_hist
+
 
 }
 
