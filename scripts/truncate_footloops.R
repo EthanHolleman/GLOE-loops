@@ -23,7 +23,7 @@ modify_peak_end_position <- function(bed.df){
 
 put_df_to_bed <- function(bed.df, output.path){
   
-  write.table(rand_loci.df, output.path, sep = '\t',
+  write.table(bed.df, output.path, sep = '\t',
               row.names=F, quote = F, col.names = F
   )
   return(output.path)
@@ -38,10 +38,11 @@ main <- function(){
   output_bed <- args[2]
   bed.df <- read_bed_file(input_bed)
   bed.df.trunk <- modify_peak_end_position(bed.df)
+  put_df_to_bed(bed.df.trunk, output_bed)
   
 }
 
 
-if (!interactive){
+if (!interactive()){
   main()
 }
