@@ -289,9 +289,18 @@ rule GLOW_bed_to_bam:
         bed='output/{sample}/{mode}/{sample}.{strand}.{mode}.sorted.trim.bed',
         genome='rawdata/hg19/hg19.chrom.sizes'
     output:
-        temp('output/{sample}/{mode}/{sample}.{strand}.{mode}.sorted.trim.bam')
+        temp('output/{sample}/{mode}/{sample}.{strand}.{mode}.trim.bam')
     shell:'''
     bedtools bedtobam -i {input.bed} -g {input.genome} > {output}
+    '''
+
+rule sort_GLOW_bam:
+    input:
+        'output/{sample}/{mode}/{sample}.{strand}.{mode}.trim.bam'
+    output:
+        'output/{sample}/{mode}/{sample}.{strand}.{mode}.trim.sorted.bam'
+    shell:'''
+    samtools sort {input} > {output}
     '''
 
 
@@ -299,7 +308,7 @@ rule GLOW_read_depth:
     conda:
         'envs/samtools.yml'
     input:
-        'output/{sample}/{mode}/{sample}.{strand}.{mode}.sorted.trim.bam'
+        'output/{sample}/{mode}/{sample}.{strand}.{mode}.trim.sorted.bam'
     output:
         'output/{sample}/coverage/{sample}.{strand}.{mode}.coverage.sorted.trim.bed'
     params:
