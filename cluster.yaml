@@ -9,7 +9,11 @@ __default__:
   mem: "16000"
 
 indirect_mode:
-  time: "8-0"
+  time: "4-0"
+  mem: "64000"
+
+direct_mode:
+  time: "4-0"
   mem: "64000"
 
 map_reads:
