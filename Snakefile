@@ -16,29 +16,21 @@ FWD_DRIP_SAMPLES = [sample for sample in DRIP_SAMPLES if '_pos' in sample]
 REV_DRIP_SAMPLES = [sample for sample in DRIP_SAMPLES if '_neg' in sample]
 GLOE_SAMPLES = list(gloe_reads_df_url['Sample Name'])
 
+STRANDS = ['fwd', 'rev']
+MODES = ['direct', 'indirect']
+
 
 
 rule all:
     input:
-        #expand('output/trim_bed/DRIP/{sample}.trim.bed', sample=DRIP_SAMPLES)
-        #expand('output/intersections/{sample}.bed', sample=DRIP_SAMPLES)
-        #expand('rawdata/GLOE/{sample}.fastq', sample=GLOE_SAMPLES)
-        #expand('output/fastqc/{sample}', sample=GLOE_SAMPLES)
-        #expand('output/alignment/{sample}.sam', sample=GLOE_SAMPLES)
-        #expand('output/{sample}/indirect/{sample}.indirect.sorted.trim.bed', sample=GLOE_SAMPLES)
-        #expand('output/drip_overlap/fwd/{drip_sample}_{gloe_sample}.fwd.bed', drip_sample=FWD_DRIP_SAMPLES, gloe_sample=GLOE_SAMPLES),
-        #expand('output/plots/rev/{drip_sample}_{gloe_sample}.rev.png', drip_sample=REV_DRIP_SAMPLES, gloe_sample=GLOE_SAMPLES),
-        #expand('output/plots/fwd/{drip_sample}_{gloe_sample}.fwd.png', drip_sample=FWD_DRIP_SAMPLES, gloe_sample=GLOE_SAMPLES),
-        #expand('output/plots/rev/{drip_sample}_{gloe_sample}.rev.rand.png', drip_sample=REV_DRIP_SAMPLES, gloe_sample=GLOE_SAMPLES),
-        #expand('output/plots/fwd/{drip_sample}_{gloe_sample}.fwd.rand.png', drip_sample=FWD_DRIP_SAMPLES, gloe_sample=GLOE_SAMPLES),
-        #expand('output/{gloe_sample}/coverage/{gloe_sample}.rev.indirect.sorted.trim.bw', gloe_sample=GLOE_SAMPLES),
-        #expand('output/{gloe_sample}/coverage/{gloe_sample}.fwd.indirect.sorted.trim.bw', gloe_sample=GLOE_SAMPLES),
-        #expand('rawdata/DRIP/{sample}', sample=DRIP_SAMPLES)
-        #expand('output/{sample}/nick_to_nick/{sample}.fwd.indirect.sorted.trim.bed', sample=GLOE_SAMPLES),
-        #expand('output/{sample}/nick_to_nick/{sample}.rev.indirect.sorted.trim.bed', sample=GLOE_SAMPLES),
-        #expand('output/footloop_intersection/{sample}.{direction}.indirect.bed', sample=GLOE_SAMPLES, direction=['fwd', 'rev']),
-        #expand('output/footloop_intersection/{sample}.{direction}.indirect.count.bed', sample=GLOE_SAMPLES, direction=['fwd', 'rev'])
-        expand('output/footloop_window/{sample}.{direction_2}.{direction_1}.window.indirect.bed', sample=GLOE_SAMPLES, direction_1=['fwd', 'rev'], direction_2=['fwd', 'rev'])
+        expand(
+            'output/truncated_closests/footloop_all.{mode}.footloop_{footloop_strand}.gloe_{gloe_strand}.trunc.closest.{sample}.bed', 
+            sample=GLOE_SAMPLES, mode=MODES, gloe_strand=STRANDS, footloop_strand=STRANDS
+            ),
+        expand(
+            'output/{sample}/coverage/{sample}.{strand}.{mode}.coverage.sorted.trim.bed',
+             sample=GLOE_SAMPLES, mode=MODES, strand=STRANDS
+        )
 
 
 rule download_footloop_all:
@@ -60,6 +52,7 @@ rule seperate_footloop_strands:
     grep "-" {input} > {output.rev}
     '''
 
+
 rule sort_footloop_strands:
     input:
         'rawdata/footloop/footloop_all.{direction}.bed'
@@ -69,18 +62,31 @@ rule sort_footloop_strands:
     bedtools sort -i {input} > {output}
     '''
 
+
 rule window_footloop:
     input:
         footloop='rawdata/footloop/footloop_all.{direction_1}.sorted.bed',
-        gloe='output/{sample}/indirect/{sample}.{direction_2}.indirect.sorted.trim.bed'
+        gloe='output/{sample}/{mode}/{sample}.{direction_2}.{mode}.sorted.trim.bed'
     output:
-        'output/footloop_window/{sample}.{direction_2}.{direction_1}.window.indirect.bed'
+        'output/footloop_window/{sample}.{direction_2}.{direction_1}.window.{mode}.bed'
     params:
         w="1000"  # window size up and downstream
     shell:'''
     mkdir -p output/footloop_window/
     bedtools window -w {params.w} -a {input.footloop} -b {input.gloe} > {output}
     '''
+
+
+rule plot_window_footloop:
+    input:
+        'output/footloop_window/{sample}.{direction_2}.{direction_1}.window.{mode}.bed'
+    output:
+        'output/plots/footloop_window/{sample}.{direction_2}.{direction_1}.png'
+    shell:'''
+    mkdir -p output/plots/footloop_window/
+    /home/ethollem/anaconda3/bin/Rscript scripts/footloop_nick_dist.R {input} {output}
+    '''
+
 
 rule expand_drip:
     input:
@@ -105,6 +111,42 @@ rule download_hg_bt_index:
     mkdir --parents {output.index_dir}
     curl https://genome-idx.s3.amazonaws.com/bt/hg19.zip -o {output.downloaded_zip}
     unzip {output.downloaded_zip} -d {output.index_dir}
+    '''
+
+
+rule truncate_footloops:
+    input:
+        'rawdata/footloop/footloop_all.{strand}.bed'
+    output:
+        temp('output/truncated_footloop/footloop_all.{strand}.trunc.bed')
+    shell:'''
+    mkdir -p output/truncated_footloop/
+    /home/ethollem/anaconda3/bin/Rscript scripts/truncate_footloops.R {input} {output}
+    '''
+
+
+rule sort_truncated_footloops:
+    input:
+        'output/truncated_footloop/footloop_all.{strand}.trunc.bed'
+    output:
+        'output/truncated_footloop/footloop_all.{strand}.trunc.sorted.bed'
+    shell:'''
+    bedtools sort -i {input} > {output}
+    '''
+
+
+rule closest_truncated_breaks:
+    # closest to the R-loop initiation site, in case of ties report them all
+    # this is basically allow for counting the number of reads at the closest
+    # location as ties would be of the same location
+    input:
+        footloop='output/truncated_footloop/footloop_all.{footloop_strand}.trunc.sorted.bed',
+        gloe= 'output/{sample}/{mode}/{sample}.{gloe_strand}.{mode}.sorted.trim.bed'
+    output:
+        'output/truncated_closests/footloop_all.{mode}.footloop_{footloop_strand}.gloe_{gloe_strand}.trunc.closest.{sample}.bed'
+    shell:'''
+    mkdir -p output/truncated_closests
+    bedtools closest -D ref -a {input.footloop} -b {input.gloe} > {output}
     '''
 
 
@@ -155,7 +197,7 @@ rule map_reads:  # are these reads paired end (mates)?
         'output/{sample}/mapped/{sample}.sam'
     threads: 12
     shell:'''
-    bowtie2 -q --very-fast -x {input.bt_index}/hg19 -U {input.sample_reads} \
+    bowtie2 -q -x {input.bt_index}/hg19 -U {input.sample_reads} \
     -p {threads} -S {output}
     '''
 
@@ -241,6 +283,33 @@ rule index_sorted_bam:
     samtools index {input} {output}
     '''
 
+
+rule GLOW_bed_to_bam:
+    input:
+        bed='output/{sample}/{mode}/{sample}.{strand}.{mode}.sorted.trim.bed',
+        genome='rawdata/hg19/hg19.chrom.sizes'
+    output:
+        temp('output/{sample}/{mode}/{sample}.{strand}.{mode}.sorted.trim.bam')
+    shell:'''
+    bedtools bedtobam -i {input.bed} -g {input.genome} > {output}
+    '''
+
+
+rule GLOW_read_depth:
+    conda:
+        'envs/samtools.yml'
+    input:
+        'output/{sample}/{mode}/{sample}.{strand}.{mode}.sorted.trim.bam'
+    output:
+        'output/{sample}/coverage/{sample}.{strand}.{mode}.coverage.sorted.trim.bed'
+    params:
+        output_dir='output/{sample}/coverage'
+    shell:'''
+    mkdir -p {params.output_dir}
+    samtools depth {input} > {output}
+    '''
+
+
 # Rules below are the bam2bedI module broken up
 
 rule bam_to_bed:
@@ -254,6 +323,18 @@ rule bam_to_bed:
     bedtools bamtobed -i {input} > {output}
     '''
 
+rule direct_mode:
+    input:
+        'output/{sample}/mapped/{sample}.sorted.trim.bed'
+    output:
+        sites='output/{sample}/direct/{sample}.sites.direct.trim.bed'
+    params:
+        index_dir='output/{sample}/direct'
+    shell:'''
+    module load perl
+    mkdir -p {params.index_dir}
+    perl scripts/direct_mode.pl {input} > {output.sites}
+    '''
 
 rule indirect_mode:
     input:
@@ -269,32 +350,32 @@ rule indirect_mode:
     """
 
 
-rule sort_indirect_mode:
+rule sort_perl_mode_output:
     input:
-        'output/{sample}/indirect/{sample}.sites.indirect.trim.bed'
+        'output/{sample}/{mode}/{sample}.sites.{mode}.trim.bed'
     output:
-        temp('output/{sample}/indirect/{sample}.sites.indirect.sorted.trim.bed')
+        temp('output/{sample}/{mode}/{sample}.sites.{mode}.sorted.trim.bed')
     shell:'''
     sort -k1,1 -k2,2n -k 6 {input} > {output}
     '''
 
 
 # https://www.geeksforgeeks.org/awk-command-unixlinux-examples/
-rule get_second_column_indirect:
+rule get_second_column:
     input:
-        'output/{sample}/indirect/{sample}.sites.indirect.sorted.trim.bed'
+        'output/{sample}/{mode}/{sample}.sites.{mode}.sorted.trim.bed'
     output:
-        temp('output/{sample}/indirect/{sample}.sites.indirect.sorted.col2.trim.bed')
+        temp('output/{sample}/{mode}/{sample}.sites.{mode}.sorted.col2.trim.bed')
     shell:"""
     awk '($2 >= 0)' {input} > {output}
     """
 
 
-rule indirect_big_awk:
+rule perl_mode_big_awk:
     input:
-        'output/{sample}/indirect/{sample}.sites.indirect.sorted.col2.trim.bed'
+        'output/{sample}/{mode}/{sample}.sites.{mode}.sorted.col2.trim.bed'
     output:
-        'output/{sample}/indirect/{sample}.indirect.sorted.trim.bed'
+        'output/{sample}/{mode}/{sample}.{mode}.sorted.trim.bed'
     shell:"""
     awk '{{print $1 "\t" $2 "\t" $3 "\t" $4 "\t" 0 "\t" $6}}'  {input} > {output}
     """
@@ -302,9 +383,9 @@ rule indirect_big_awk:
 
 rule seperate_forward_strand:
     input:
-        'output/{sample}/indirect/{sample}.indirect.sorted.trim.bed'
+        'output/{sample}/{mode}/{sample}.{mode}.sorted.trim.bed'
     output:
-        'output/{sample}/indirect/{sample}.fwd.indirect.sorted.trim.bed'
+        'output/{sample}/{mode}/{sample}.fwd.{mode}.sorted.trim.bed'
     
     shell:'''
     grep "+" {input} > {output}
@@ -313,18 +394,18 @@ rule seperate_forward_strand:
 
 rule seperate_reverse_strand:
     input:
-        'output/{sample}/indirect/{sample}.indirect.sorted.trim.bed'
+        'output/{sample}/{mode}/{sample}.{mode}.sorted.trim.bed'
     output:
-        'output/{sample}/indirect/{sample}.rev.indirect.sorted.trim.bed'
+        'output/{sample}/{mode}/{sample}.rev.{mode}.sorted.trim.bed'
     shell:'''
     grep "-" {input} > {output}
     '''
 
 rule merge_bed_fwd:
     input:
-        'output/{sample}/indirect/{sample}.fwd.indirect.sorted.trim.bed'
+        'output/{sample}/{mode}/{sample}.fwd.{mode}.sorted.trim.bed'
     output:
-        temp('output/{sample}/nick_to_nick/{sample}.fwd.indirect.sorted.trim.merge.bed')
+        temp('output/{sample}/nick_to_nick/{sample}.fwd.{mode}.sorted.trim.merge.bed')
     shell:'''
     bedtools merge -i {input} > {output}
     '''
@@ -332,9 +413,9 @@ rule merge_bed_fwd:
 
 rule merge_bed_rev:
     input:
-        'output/{sample}/indirect/{sample}.rev.indirect.sorted.trim.bed'
+        'output/{sample}/{mode}/{sample}.rev.{mode}.sorted.trim.bed'
     output:
-        temp('output/{sample}/nick_to_nick/{sample}.rev.indirect.sorted.trim.merge.bed')
+        temp('output/{sample}/nick_to_nick/{sample}.rev.{mode}.sorted.trim.merge.bed')
     shell:'''
     bedtools merge -i {input} > {output}
     '''
@@ -343,9 +424,9 @@ rule merge_bed_rev:
 
 rule nick_to_nick_distance_fwd:
     input:
-        'output/{sample}/nick_to_nick/{sample}.fwd.indirect.sorted.trim.merge.bed'
+        'output/{sample}/nick_to_nick/{sample}.fwd.{mode}.sorted.trim.merge.bed'
     output:
-        'output/{sample}/nick_to_nick/{sample}.fwd.indirect.sorted.trim.bed'
+        'output/{sample}/nick_to_nick/{sample}.fwd.{mode}.sorted.trim.bed'
     shell:'''
     bedtools closest -t "first" -io -s -d -D "a" -a {input} -b {input} > {output}
     '''
@@ -353,9 +434,9 @@ rule nick_to_nick_distance_fwd:
 
 rule nick_to_nick_distance_rev:
     input:
-        'output/{sample}/nick_to_nick/{sample}.rev.indirect.sorted.trim.merge.bed'
+        'output/{sample}/nick_to_nick/{sample}.rev.{mode}.sorted.trim.merge.bed'
     output:
-        'output/{sample}/nick_to_nick/{sample}.rev.indirect.sorted.trim.bed'
+        'output/{sample}/nick_to_nick/{sample}.rev.{mode}.sorted.trim.bed'
     shell:'''
     bedtools closest -t "first" -io -s -d -D "a" -a {input} -b {input} > {output}
     '''
@@ -363,9 +444,9 @@ rule nick_to_nick_distance_rev:
 
 rule plot_ntn_fwd:
     input:
-        'output/{sample}/nick_to_nick/{sample}.fwd.indirect.sorted.trim.bed'
+        'output/{sample}/nick_to_nick/{sample}.fwd.{mode}.sorted.trim.bed'
     output:
-        'output/{sample}/nick_to_nick/{sample}.fwd.indirect.sorted.trim.plt.png'
+        'output/{sample}/nick_to_nick/{sample}.fwd.{mode}.sorted.trim.plt.png'
     shell:'''
     scripts/Rscript {input} {output}
     '''
@@ -373,22 +454,20 @@ rule plot_ntn_fwd:
 
 rule plot_ntn_rev:
     input:
-        'output/{sample}/nick_to_nick/{sample}.rev.indirect.sorted.trim.merge.bed'
+        'output/{sample}/nick_to_nick/{sample}.rev.{mode}.sorted.trim.merge.bed'
     output:
-        'output/{sample}/nick_to_nick/{sample}.rev.indirect.sorted.trim.plt.png'
+        'output/{sample}/nick_to_nick/{sample}.rev.{mode}.sorted.trim.plt.png'
     shell:'''
     scripts/Rscript {input} {output}
     '''
 
 
-
-
 rule bed_to_bam_fwd:
     input:
-        bed='output/{sample}/indirect/{sample}.fwd.indirect.sorted.trim.bed',
+        bed='output/{sample}/{mode}/{sample}.fwd.{mode}.sorted.trim.bed',
         index='rawdata/hg19/hg19.chrom.sizes'
     output:
-        'output/{sample}/bam/{sample}.fwd.indirect.sorted.trim.bam'
+        'output/{sample}/bam/{sample}.fwd.{mode}.sorted.trim.bam'
     params:
         bed_dir='output/{sample}/bam/'
     shell:'''
@@ -399,10 +478,10 @@ rule bed_to_bam_fwd:
 
 rule bed_to_bam_rev:
     input:
-        bed='output/{sample}/indirect/{sample}.rev.indirect.sorted.trim.bed',
+        bed='output/{sample}/{mode}/{sample}.rev.{mode}.sorted.trim.bed',
         index='rawdata/hg19/hg19.chrom.sizes'
     output:
-        'output/{sample}/bam/{sample}.rev.indirect.sorted.trim.bam'
+        'output/{sample}/bam/{sample}.rev.{mode}.sorted.trim.bam'
     params:
         bed_dir='output/{sample}/bam/'
     shell:'''
@@ -415,9 +494,9 @@ rule bam_converage_fwd:
     conda:
         'envs/deeptools.yml'
     input:
-        'output/{sample}/bam/{sample}.fwd.indirect.sorted.trim.bam'
+        'output/{sample}/bam/{sample}.fwd.{mode}.sorted.trim.bam'
     output:
-        'output/{sample}/coverage/{sample}.fwd.indirect.sorted.trim.bw'
+        'output/{sample}/coverage/{sample}.fwd.{mode}.sorted.trim.bw'
     threads: 12
     params:
         bw_dir='output/{sample}/coverage/'
@@ -432,9 +511,9 @@ rule bam_converage_rev:
     conda:
         'envs/deeptools.yml'
     input:
-        'output/{sample}/bam/{sample}.rev.indirect.sorted.trim.bam'
+        'output/{sample}/bam/{sample}.rev.{mode}.sorted.trim.bam'
     output:
-        'output/{sample}/coverage/{sample}.rev.indirect.sorted.trim.bw'
+        'output/{sample}/coverage/{sample}.rev.{mode}.sorted.trim.bw'
     threads: 12
     params:
         bw_dir='output/{sample}/coverage/'
@@ -448,7 +527,7 @@ rule bam_converage_rev:
 
 rule closest_drip_breaks_forward_strand:
     input:
-        gloe='output/{gloe_sample}/indirect/{gloe_sample}.fwd.indirect.sorted.trim.bed',
+        gloe='output/{gloe_sample}/{mode}/{gloe_sample}.fwd.{mode}.sorted.trim.bed',
         drip='output/trim_bed/DRIP/{drip_sample}.trim.merged.bed'
     output:
         'output/drip_overlap/fwd/{drip_sample}_{gloe_sample}.fwd.bed'
@@ -461,7 +540,7 @@ rule closest_drip_breaks_forward_strand:
 
 rule closest_drip_breaks_rev_strand:
     input:
-        gloe='output/{gloe_sample}/indirect/{gloe_sample}.rev.indirect.sorted.trim.bed',
+        gloe='output/{gloe_sample}/{mode}/{gloe_sample}.rev.{mode}.sorted.trim.bed',
         drip='output/trim_bed/DRIP/{drip_sample}.trim.merged.bed'
     output:
         'output/drip_overlap/rev/{drip_sample}_{gloe_sample}.rev.bed'
@@ -472,7 +551,7 @@ rule closest_drip_breaks_rev_strand:
 
 rule rand_closest_drip_breaks_rev_strand:
     input:
-        gloe='output/{gloe_sample}/indirect/{gloe_sample}.rev.indirect.sorted.trim.bed',
+        gloe='output/{gloe_sample}/{mode}/{gloe_sample}.rev.{mode}.sorted.trim.bed',
         drip='output/random_bed/{drip_sample}_{gloe_sample}.rev.sorted.bed'
     output:
         'output/drip_overlap/rev/{drip_sample}_{gloe_sample}.rev.rand.closest.bed'
@@ -482,7 +561,7 @@ rule rand_closest_drip_breaks_rev_strand:
 
 rule rand_closest_drip_breaks_fwd_strand:
     input:
-        gloe='output/{gloe_sample}/indirect/{gloe_sample}.fwd.indirect.sorted.trim.bed',
+        gloe='output/{gloe_sample}/{mode}/{gloe_sample}.fwd.{mode}.sorted.trim.bed',
         drip='output/random_bed/{drip_sample}_{gloe_sample}.fwd.sorted.bed'
     output:
         'output/drip_overlap/fwd/{drip_sample}_{gloe_sample}.fwd.rand.closest.bed'
