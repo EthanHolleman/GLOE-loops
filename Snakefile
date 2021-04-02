@@ -18,20 +18,30 @@ GLOE_SAMPLES = list(gloe_reads_df_url['Sample Name'])
 
 STRANDS = ['fwd', 'rev']
 MODES = ['direct', 'indirect']
+CLOSEST_MODES = ['all', 'first']
 
 
 
 rule all:
     input:
         expand(
-            'output/truncated_closests/footloop_all.{mode}.footloop_{footloop_strand}.gloe_{gloe_strand}.trunc.closest.{sample}.bed', 
-            sample=GLOE_SAMPLES, mode=MODES, gloe_strand=STRANDS, footloop_strand=STRANDS
-            ),
+            'output/{sample}/random/{mode}.{sample}.{strand}.random.closest.first.bed', 
+            sample=GLOE_SAMPLES, mode=MODES, strand=STRANDS
+        ),
         expand(
-            'output/{sample}/coverage/{sample}.{strand}.{mode}.coverage.sorted.trim.bed',
-             sample=GLOE_SAMPLES, mode=MODES, strand=STRANDS
-        )
+            'output/plots/footloop_dist_vs_random/{mode}.{sample}.footloop_{footloop_strand}.gloe_{gloe_strand}.nick_dist.png',
+            sample=GLOE_SAMPLES, mode=MODES, footloop_strand=STRANDS, gloe_strand=STRANDS
+        ),
+        expand(
+            'output/footloop_cons/footloop_all.{strand}.con.bed',
+            strand=STRANDS
+        ),
+        expand(
+            'output/{sample}/footloop_con/{mode}.footloop_all.{strand}.{sample}.{gloe_strand}.con.sorted.first.closest.png',
+            sample=GLOE_SAMPLES, mode=MODES, gloe_strand=STRANDS, strand=STRANDS
+        ),
 
+         
 
 rule download_footloop_all:
     output:
@@ -135,7 +145,18 @@ rule sort_truncated_footloops:
     '''
 
 
-rule closest_truncated_breaks:
+rule closest_truncated_breaks_first:
+    input:
+        footloop='output/truncated_footloop/footloop_all.{footloop_strand}.trunc.sorted.bed',
+        gloe= 'output/{sample}/{mode}/{sample}.{gloe_strand}.{mode}.sorted.trim.bed'
+    output:
+        'output/truncated_closests/footloop_all.{mode}.footloop_{footloop_strand}.gloe_{gloe_strand}.trunc.closest.first.{sample}.bed'
+    shell:'''
+    mkdir -p output/truncated_closests
+    bedtools closest -t first -D ref -a {input.footloop} -b {input.gloe} > {output}
+    '''
+
+rule closest_truncated_breaks_all:
     # closest to the R-loop initiation site, in case of ties report them all
     # this is basically allow for counting the number of reads at the closest
     # location as ties would be of the same location
@@ -143,7 +164,7 @@ rule closest_truncated_breaks:
         footloop='output/truncated_footloop/footloop_all.{footloop_strand}.trunc.sorted.bed',
         gloe= 'output/{sample}/{mode}/{sample}.{gloe_strand}.{mode}.sorted.trim.bed'
     output:
-        'output/truncated_closests/footloop_all.{mode}.footloop_{footloop_strand}.gloe_{gloe_strand}.trunc.closest.{sample}.bed'
+        'output/truncated_closests/footloop_all.{mode}.footloop_{footloop_strand}.gloe_{gloe_strand}.trunc.closest.all.{sample}.bed'
     shell:'''
     mkdir -p output/truncated_closests
     bedtools closest -D ref -a {input.footloop} -b {input.gloe} > {output}
@@ -641,24 +662,117 @@ rule plot_rand_distance_distrabutions_fwd:
     /home/ethollem/anaconda3/bin/Rscript scripts/plot_nick_distances.R {input.rand_bed} {output.random_plot}
     '''
 
-rule make_random_bed_fwd:
+rule concentrations_vs_nick_dist:
     input:
-        bed='output/drip_overlap/fwd/{drip_sample}_{gloe_sample}.fwd.bed',
-        chr_sizes='rawdata/hg19/hg19.chrom.sizes'
+         'output/{sample}/footloop_con/{mode}.footloop_all.{strand}.{sample}.{gloe_strand}.con.sorted.first.closest.bed'
     output:
-        'output/random_bed/{drip_sample}_{gloe_sample}.fwd.bed'
+         'output/{sample}/footloop_con/{mode}.footloop_all.{strand}.{sample}.{gloe_strand}.con.sorted.first.closest.png'
     shell:'''
-    /home/ethollem/anaconda3/bin/Rscript scripts/random_sample_genome.R {input.chr_sizes} {output} `cat {input.bed} | wc -l`
+    /home/ethollem/anaconda3/bin/Rscript scripts/concentrations_vs_distance.R {input} {output}
     '''
 
-rule make_random_bed_rev:
+
+rule footloop_concentration:
     input:
-        bed='output/drip_overlap/rev/{drip_sample}_{gloe_sample}.rev.bed',
-        chr_sizes='rawdata/hg19/hg19.chrom.sizes'
+        amplicons='rawdata/footloop/footprinted_sites.bed',
+        footloop='rawdata/footloop/footloop_all.{strand}.bed'
     output:
-        'output/random_bed/{drip_sample}_{gloe_sample}.rev.bed'
+        'output/footloop_cons/footloop_all.{strand}.con.bed'
     shell:'''
-    /home/ethollem/anaconda3/bin/Rscript scripts/random_sample_genome.R {input.chr_sizes} {output} `cat {input.bed} | wc -l`
+    /home/ethollem/anaconda3/bin/Rscript scripts/footloop_init_concentration.R \
+    {input.amplicons} {input.footloop} {output}
+    '''
+
+
+rule sort_footloop_concentrations:
+    input:
+        'output/footloop_cons/footloop_all.{strand}.con.bed'
+    output:
+        'output/footloop_cons/footloop_all.{strand}.con.sorted.bed'
+    shell:'''
+    bedtools sort -i {input} > {output}
+    '''
+
+
+rule closest_con_sites_to_breaks:
+    input:
+        footloop_cons='output/footloop_cons/footloop_all.{strand}.con.sorted.bed',
+        gloe_reads='output/{sample}/{mode}/{sample}.{gloe_strand}.{mode}.sorted.trim.bed'
+    output:
+        'output/{sample}/footloop_con/{mode}.footloop_all.{strand}.{sample}.{gloe_strand}.con.sorted.first.closest.bed'
+    params:
+        outdir='output/{sample}/footloop_con/'
+    shell:'''
+    mkdir -p {params.outdir}
+    bedtools closest -D ref -t first -a {input.footloop_cons} -b {input.gloe_reads} \
+    > {output}
+    '''
+
+
+
+
+# This is incorrect for a couple reasons, the first being that we should prob
+# only sample footloop sites second has to do with t-tests requiring
+# normality use the rule below instead
+rule make_random_fl_initiation_sites_bed:
+    input:
+        'rawdata/footloop/genes.tsv'  # should be produces with R script but having problems getting biomaRt working
+    output:
+        temp('output/random/fl_init_sites.random.bed')
+    shell:'''
+    mkdir -p output/random
+    /home/ethollem/anaconda3/bin/Rscript scripts/footloop_init_dist_rand.R \
+    {input} {output}
+    '''
+
+
+rule random_sample_footloop_sites:
+    input:
+        'rawdata/footloop/footprinted_sites.bed'
+    output:
+        temp('output/random/fl.sites.random.bed')
+    shell:'''
+    mkdir -p output/random
+    /home/ethollem/anaconda3/bin/Rscript scripts/random_sample_footloop_sites.R \
+    {input} {output}
+    '''
+
+
+rule sort_random_fl_init_sites_bed:
+    input:
+        'output/random/fl.sites.random.bed'
+    output:
+        'output/random/fl.sites.random.sorted.bed'
+    shell:'''
+    bedtools sort -i {input} > {output}
+    '''
+
+
+rule closest_breaks_to_random_init_sites:
+    input:
+        rand_sites='output/random/fl.sites.random.sorted.bed',
+        gloe_reads='output/{sample}/{mode}/{sample}.{strand}.{mode}.sorted.trim.bed'
+    output:
+        'output/{sample}/random/{mode}.{sample}.{strand}.random.closest.first.bed'
+    params:
+        outdir='output/{sample}/random'
+    shell:'''
+    mkdir -p {params.outdir}
+    bedtools closest -D ref -t first -a {input.rand_sites} -b {input.gloe_reads} \
+    > {output}
+    '''
+
+
+rule plot_footloop_vs_random_distances:
+    input:
+        random='output/{sample}/random/{mode}.{sample}.{gloe_strand}.random.closest.first.bed',
+        footloop='output/truncated_closests/footloop_all.{mode}.footloop_{footloop_strand}.gloe_{gloe_strand}.trunc.closest.first.{sample}.bed'
+    output:
+        'output/plots/footloop_dist_vs_random/{mode}.{sample}.footloop_{footloop_strand}.gloe_{gloe_strand}.nick_dist.png'
+    shell:'''
+    mkdir -p output/plots/footloop_dist_vs_random/
+    /home/ethollem/anaconda3/bin/Rscript scripts/footloop_compare_rand.R \
+    {input.footloop} {input.random} {output}
     '''
 
 
